@@ -1,0 +1,19 @@
+[package]
+name = "cardputer-voice"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+libc = "=0.2.153"
+serde_json = "=1.0.108"
+flate2 = "=1.0.28"
+tungstenite = { version = "=0.21.0", features = ["rustls-tls-native-roots"] }
+
+[profile.release]
+opt-level = "s"
+lto = false
+codegen-units = 4
+strip = true
+panic = "abort"

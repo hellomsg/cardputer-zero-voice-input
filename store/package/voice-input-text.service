@@ -1,0 +1,12 @@
+[Unit]
+Description=Cardputer Voice local text broker
+
+[Service]
+ExecStart=/usr/lib/voice-input/voice-input-text
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

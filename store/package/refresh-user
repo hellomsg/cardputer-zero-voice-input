@@ -1,0 +1,18 @@
+#!/bin/sh
+# Called as the configured user after a package upgrade, not on first install.
+set -eu
+marker="$HOME/.local/share/voice-input/store-setup-v1"
+[ -f "$marker" ] || exit 0
+# Ensure user unit links exist after upgrading from earlier packages.
+/usr/lib/voice-input/setup-user
+# No running user manager means the next login already starts fresh binaries.
+systemctl --user show-environment >/dev/null 2>&1 || exit 0
+config="$HOME/.config/voice-input"
+umask 077
+mkdir -p "$config"
+tmp=$(mktemp "$config/.restart-required.XXXXXXXX")
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+cat /proc/sys/kernel/random/boot_id > "$tmp"
+mv -f "$tmp" "$config/restart-required"
+trap - EXIT HUP INT TERM
+systemctl --user daemon-reload || :

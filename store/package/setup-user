@@ -1,0 +1,94 @@
+#!/bin/sh
+# Idempotent per-user setup; preserve prior user configuration during rename.
+set -eu
+umask 077
+# Copy legacy credentials once without replacing any new configuration.
+legacy="$HOME/.config/cardputer-voice"
+config="$HOME/.config/voice-input"
+migration_marker="$HOME/.local/share/voice-input/legacy-migrated-v1"
+if [ ! -e "$migration_marker" ] && [ -d "$legacy" ] && [ ! -L "$legacy" ]; then
+    if [ -L "$config" ]; then echo 'Unsafe voice configuration directory.' >&2; exit 1; fi
+    mkdir -p "$config"
+    for name in deepseek-api-key openai-api-key doubao-api-key provider; do
+        src="$legacy/$name"; dst="$config/$name"
+        if [ -f "$src" ] && [ ! -L "$src" ] && [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+            cp -p "$src" "$dst"; chmod 600 "$dst"
+        fi
+    done
+    mkdir -p "$(dirname "$migration_marker")"
+    : > "$migration_marker"
+fi
+systemd_dir="$HOME/.config/systemd/user"
+dropin="$systemd_dir/APPLaunch.service.d/90-voice-input-store.conf"
+marker="$HOME/.local/share/voice-input/store-setup-v1"
+runtime="${XDG_RUNTIME_DIR:?}/voice-input"
+expected='[Service]
+Environment=LD_PRELOAD=/usr/lib/voice-input/shared_bridge.so'
+if [ -f "$marker" ] && [ -f "$dropin" ]; then
+    [ "$(cat "$dropin")" = "$expected" ] || { echo 'Voice launcher configuration has been modified.' >&2; exit 1; }
+    # Migrate units from older packages into the package-owned directory.
+    changed=0
+    for service in voice-input.service voice-input-text.service; do
+        unit="$systemd_dir/$service"
+        target="/usr/lib/voice-input/systemd/$service"
+        if [ -L "$unit" ] && [ "$(readlink "$unit")" = "$target" ]; then continue; fi
+        [ ! -e "$unit" ] && [ ! -L "$unit" ] || { echo "Existing service configuration was preserved: $unit" >&2; exit 1; }
+        ln -s "$target" "$unit"
+        link="$systemd_dir/default.target.wants/$service"
+        if [ -L "$link" ] && [ "$(readlink "$link")" = "/usr/lib/systemd/user/$service" ]; then ln -sfn "$unit" "$link"; fi
+        changed=1
+    done
+    if [ "$changed" = 1 ] && systemctl --user show-environment >/dev/null 2>&1; then systemctl --user daemon-reload; fi
+    exit 0
+fi
+mkdir -p "$systemd_dir/APPLaunch.service.d" "$runtime" "$(dirname "$marker")"
+# Do not replace an unrelated application's preload configuration.
+current=$(systemctl --user show APPLaunch.service -p Environment --value)
+case "$current" in
+  ''|"LD_PRELOAD=$HOME/.local/share/voice-input/shared_bridge.so"|"LD_PRELOAD=/usr/lib/voice-input/shared_bridge.so") ;;
+  *) printf '%s\n' 'Unsupported APPLaunch environment; existing settings were preserved.' >&2; exit 1 ;;
+esac
+backup=$(mktemp -d "$HOME/.local/share/voice-input/store-backup.XXXXXXXX")
+voice_active=0; text_active=0; voice_enabled=0; text_enabled=0
+systemctl --user is-active --quiet voice-input.service && voice_active=1
+systemctl --user is-active --quiet voice-input-text.service && text_active=1
+systemctl --user is-enabled --quiet voice-input.service && voice_enabled=1
+systemctl --user is-enabled --quiet voice-input-text.service && text_enabled=1
+for item in voice-input.service voice-input-text.service voice-input.service.d voice-input-text.service.d APPLaunch.service.d/90-voice-input-test.conf; do
+    if [ -e "$systemd_dir/$item" ]; then
+        mkdir -p "$backup/$(dirname "$item")"
+        cp -a "$systemd_dir/$item" "$backup/$item"
+    fi
+done
+restore() {
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        rm -f "$dropin"
+        for service in voice-input.service voice-input-text.service; do
+            unit="$systemd_dir/$service"
+            if [ -L "$unit" ] && [ "$(readlink "$unit")" = "/usr/lib/voice-input/systemd/$service" ]; then rm -f "$unit"; fi
+        done
+        for item in voice-input.service voice-input-text.service voice-input.service.d voice-input-text.service.d APPLaunch.service.d/90-voice-input-test.conf; do
+            if [ -e "$backup/$item" ]; then cp -a "$backup/$item" "$systemd_dir/$item"; fi
+        done
+        systemctl --user daemon-reload || :
+        [ "$text_enabled" = 0 ] || systemctl --user enable voice-input-text.service || :
+        [ "$voice_enabled" = 0 ] || systemctl --user enable voice-input.service || :
+        [ "$text_active" = 0 ] || systemctl --user start voice-input-text.service || :
+        [ "$voice_active" = 0 ] || systemctl --user start voice-input.service || :
+        printf 'Setup failed; configuration restored from %s\n' "$backup" >&2
+    fi
+}
+trap restore EXIT HUP INT TERM
+systemctl --user stop voice-input.service voice-input-text.service || :
+systemctl --user disable voice-input.service voice-input-text.service || :
+rm -rf "$systemd_dir/voice-input.service" "$systemd_dir/voice-input-text.service" "$systemd_dir/voice-input.service.d" "$systemd_dir/voice-input-text.service.d"
+rm -f "$systemd_dir/APPLaunch.service.d/90-voice-input-test.conf"
+for service in voice-input.service voice-input-text.service; do
+    ln -s "/usr/lib/voice-input/systemd/$service" "$systemd_dir/$service"
+done
+printf '%s\n' "$expected" > "$dropin"
+systemctl --user daemon-reload
+: > "$marker"
+: > "$runtime/launcher-restart-needed"
+trap - EXIT HUP INT TERM

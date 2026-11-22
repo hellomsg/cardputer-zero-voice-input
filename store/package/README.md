@@ -1,0 +1,7 @@
+# Store package development
+
+The package uses the single `voice-input.service` and `voice-input-text.service` user service pair. The first user setup backs up the previous experimental user units and known launcher drop-in, removes them from the active configuration, and loads the package's units. It keeps the existing API key. Existing unrelated launcher environment settings cause setup to stop instead of replacing them.
+
+`build-from-source.sh` builds all ARM64 components and assembles a local test package by default. Its maintainer is supplied by the caller. To prepare a release candidate explicitly, set `CARDPUTER_PACKAGE_RELEASE=1` and set `CARDPUTER_TEST_VERSION` to the candidate version (for example `0.1.0`); a candidate still needs review and device validation before publication. `build-test-deb.sh` is the lower-level assembler for five prebuilt ARM64 files. The shell tests use a disposable home and mocked systemd. The source build has been exercised end to end; its rebuilt UI and settings core passed isolated device tests. An upgrade between test versions has also been verified on the device.
+
+`remove-user` stops and disables the services, removes only the application's unmodified launcher drop-in, and retains the API key. `prerm` runs this per-user cleanup as each configured user. This removal flow has passed mocked tests and a real uninstall/reinstall test on the device; the key was preserved and the services were restored.

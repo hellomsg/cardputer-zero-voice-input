@@ -1,0 +1,11 @@
+#!/bin/sh
+# Prepare the per-user launcher integration once, then open the settings app.
+set -eu
+/usr/lib/voice-input/setup-user
+/usr/lib/voice-input/settings-ui
+# APPLaunch only reads its systemd environment at startup. Run the restart
+# asynchronously, after the settings screen has closed.
+if [ -e "${XDG_RUNTIME_DIR:?}/voice-input/launcher-restart-needed" ]; then
+    rm -f "$XDG_RUNTIME_DIR/voice-input/launcher-restart-needed"
+    systemd-run --user --quiet --collect --on-active=2s /usr/bin/systemctl --user restart APPLaunch.service
+fi

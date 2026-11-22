@@ -1,0 +1,15 @@
+[Unit]
+Description=Cardputer Voice recording and transcription
+Requires=voice-input-text.service
+After=voice-input-text.service pipewire-pulse.service
+Wants=pipewire-pulse.service
+
+[Service]
+ExecStart=/usr/lib/voice-input/voice-input
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

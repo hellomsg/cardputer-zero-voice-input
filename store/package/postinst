@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+# An upgrade can leave old code loaded in running user services and APPLaunch.
+# Preserve active work and ask each active user to restart their device.
+if [ "${1:-}" = configure ] && [ -n "${2:-}" ]; then
+    getent passwd | while IFS=: read -r name _ uid _ _ home _; do
+        case "$uid" in ''|*[!0-9]*) continue;; esac
+        [ "$uid" -ge 1000 ] || continue
+        [ -f "$home/.local/share/voice-input/store-setup-v1" ] || continue
+        runuser -u "$name" -- env HOME="$home" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" /usr/lib/voice-input/refresh-user
+done
+fi

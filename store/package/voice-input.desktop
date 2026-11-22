@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Voice Input
+Comment=Configure Cardputer Voice
+Exec=/usr/bin/voice-input-settings-ui
+Icon=share/images/voice-input.png
+Terminal=false
+Categories=Utility;
+StartupNotify=false

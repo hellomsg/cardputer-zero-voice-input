@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+/rust/target/
+/store/ui/.cache/
+/store/ui/build/
+/store/dist/
+/shared_bridge.so
+/shared_bridge_test.so
+/mock_lvgl
+/mock_libinput.so
+/test_hotkey
+**/deepseek-api-key
+.env
+.env.*

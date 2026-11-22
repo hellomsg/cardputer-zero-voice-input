@@ -1,0 +1,35 @@
+#!/bin/sh
+# Called as the user being cleaned up, never as root on their files.
+set -eu
+systemd_dir="$HOME/.config/systemd/user"
+marker="$HOME/.local/share/voice-input/store-setup-v1"
+dropin="$systemd_dir/APPLaunch.service.d/90-voice-input-store.conf"
+[ -f "$marker" ] || exit 0
+expected='[Service]
+Environment=LD_PRELOAD=/usr/lib/voice-input/shared_bridge.so'
+if [ -e "$dropin" ] && [ "$(cat "$dropin")" != "$expected" ]; then
+    printf '%s\n' 'Voice launcher configuration was modified; refusing to remove it.' >&2
+    exit 1
+fi
+active=0
+if systemctl --user show-environment >/dev/null 2>&1; then
+    active=1
+    systemctl --user disable --now voice-input.service voice-input-text.service || exit 1
+fi
+# Offline managers can leave package-owned enablement links behind.
+for service in voice-input.service voice-input-text.service; do
+    link="$systemd_dir/default.target.wants/$service"
+    if [ -L "$link" ]; then
+        case "$(readlink "$link")" in "/usr/lib/systemd/user/$service"|"$systemd_dir/$service"|"/usr/lib/voice-input/systemd/$service") rm -f "$link";; esac
+    fi
+    unit="$systemd_dir/$service"
+    if [ -L "$unit" ] && [ "$(readlink "$unit")" = "/usr/lib/voice-input/systemd/$service" ]; then rm -f "$unit"; fi
+done
+rm -f "$dropin"
+if [ "$active" = 1 ]; then
+    systemctl --user daemon-reload
+    # Removing LD_PRELOAD affects the launcher after restart. Do not block dpkg
+    # on the restart, which terminates running applications.
+    systemd-run --user --quiet --collect --on-active=2s /usr/bin/systemctl --user restart APPLaunch.service || systemctl --user restart APPLaunch.service
+fi
+rm -f "$marker" "$HOME/.config/voice-input/restart-required"
